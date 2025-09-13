@@ -24,6 +24,8 @@ This project is designed to build an AI model based on the transformer architect
 
 **Now you can develop the model** — open and run `main.ipynb` to get started.
 
+**If you prefere python code** - navigate to `main.py
+
 
 ## 👤 Author
 
