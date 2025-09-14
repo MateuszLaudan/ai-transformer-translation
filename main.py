@@ -525,11 +525,6 @@ for epoch in range(num_epochs):
     print(f"Average Validation Loss: {avg_val_loss:.4f}")
 
 
-# %%
-# import gc
-# del transformer
-# gc.collect()
-
 # %% [markdown]
 # # Show charts with lr and loss
 
@@ -582,145 +577,165 @@ ax2.legend(loc="upper right")
 
 plt.show()
 
+# %%
+PATH = r"model.pt"
+
+# %%
+# torch.save(transformer.state_dict(), PATH)
+
+# %%
+transformer_output = Transformer(src_vocab_size, tgt_vocab_size, d_model, num_heads, num_layers, d_ff, max_src_seq_len,
+                          max_tgt_seq_len,
+                          dropout)
+transformer_output.to(device)
+transformer_output.load_state_dict(torch.load(PATH, weights_only=True))
 
 # %% [markdown]
 # # Model inference
 
 # %%
-def inference(input, tokenizer, model, max_length=TGT_MAX_SEQ):
-    """
-    Translates a single Polish sentence into Ukrainian using greedy decoding.
-    """
-    model.eval()  # Set the model to evaluation mode
-
-    tokens = tokenizer.encode(input)
-    tokens = torch.tensor(tokens).unsqueeze(0).to(device)  # Shape: (1, seq_len)
-    # print(tokens)
-
-    # Start with the input sentence and an empty target sequence
-    src_data = tokens
-    tgt_data = torch.tensor([tokenizer.bos_token_id]).unsqueeze(0).to(device)
-
-    with torch.no_grad():
-        for _ in range(max_length):
-            output = model(src_data, tgt_data)
-
-            next_token_id = output[:, -1, :].argmax(dim=-1).item()
-
-            tgt_data = torch.cat([tgt_data, torch.tensor([[next_token_id]]).to(device)], dim=1)
-
-            if next_token_id == tokenizer.eos_token_id:
-                break
-
-    # Decode the token ids back to the sentence
-    translated_tokens = tgt_data.squeeze().tolist()
-    translated_sentence = tokenizer.decode(translated_tokens, skip_special_tokens=True)
-
-    return translated_sentence
-
-
-def inference_from_datasets(train_dataset: bool = True, index: int = 0) -> (str, str):
-    if train_dataset:
-        dataset = train_loader.dataset
-    else:
-        dataset = val_loader.dataset
-    src_input = tokenizer.decode(dataset[index][0].tolist(), skip_special_tokens=True)
-    translation = inference(src_input, tokenizer, transformer)
-
-    print('Dataset:', 'Train' if train_dataset else 'Validation')
-    print('Src:', src_input)
-    print('Generated translation:', translation)
-    real_translation = tokenizer.decode(dataset[index][1].tolist(), skip_special_tokens=True)
-    print('Real translation:      ', real_translation)
-    return src_input, translation, real_translation
-
-
-# %% [markdown]
-# <!-- # SacreBLEU metrics -->
-
-# %%
 import evaluate
 import httpx
-# Load metrics
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+deepl_auth_key = os.getenv("DEEPL_AUTH_KEY")
+
+# -----------------------------
+# Metrics setup
+# -----------------------------
 rouge = evaluate.load("rouge")
 sacrebleu = evaluate.load("sacrebleu")
 meteor = evaluate.load("meteor")
 chrf = evaluate.load("chrf")
 bleu = evaluate.load("bleu")
 
-# %%
-from dotenv import load_dotenv
-import os
+# -----------------------------
+# Inference function
+# -----------------------------
+def inference(input_text: str, tokenizer, model, max_length: int = TGT_MAX_SEQ, device='cuda'):
+    """
+    Perform auto-regressive translation inference.
+    """
+    model.eval()
+    tokens = tokenizer.encode(input_text)
+    src_data = torch.tensor(tokens).unsqueeze(0).to(device)
+    tgt_data = torch.tensor([tokenizer.bos_token_id]).unsqueeze(0).to(device)
 
-load_dotenv()  # Load variables from .env
+    with torch.no_grad():
+        for _ in range(max_length):
+            output = model(src_data, tgt_data)
+            next_token_id = output[:, -1, :].argmax(dim=-1).item()
+            tgt_data = torch.cat([tgt_data, torch.tensor([[next_token_id]]).to(device)], dim=1)
+            if next_token_id == tokenizer.eos_token_id:
+                break
 
-deepl_auth_key = os.getenv("DEEPL_AUTH_KEY")
+    translated_tokens = tgt_data.squeeze().tolist()
+    return tokenizer.decode(translated_tokens, skip_special_tokens=True)
 
-# %%
+# -----------------------------
+# Dataset example translation
+# -----------------------------
+def translate_dataset_example(model, tokenizer, dataset_loader, index=0):
+    """
+    Translate a single example from a given dataset loader.
+    Returns src sentence, model translation, and reference translation.
+    """
+    dataset = dataset_loader.dataset
+    src_input = tokenizer.decode(dataset[index][0].tolist(), skip_special_tokens=True)
+    reference = tokenizer.decode(dataset[index][1].tolist(), skip_special_tokens=True)
+    translation = inference(src_input, tokenizer, model)
+    
+    return src_input, translation, reference
 
-# Docs: https://huggingface.co/spaces/evaluate-metric/sacrebleu
-# score from 0 to 100
-local_accuracy = 0.0
-deepl_accuracy = 0.0
+# -----------------------------
+# Compute metrics for one pair
+# -----------------------------
+def compute_metrics(prediction: str, reference: str):
+    """
+    Compute all relevant metrics between a prediction and reference.
+    Returns a dictionary.
+    """
+    preds = [prediction]
+    refs = [[reference]]
 
-def compute(predictions, references):
-    # Predictions and references
-    predictions = [predictions]
-    references = [[references]]
-
-    # Compute all metrics
-    results_rouge = rouge.compute(predictions=predictions, references=references)  # ROUGE expects list of strings
-    results_sacrebleu = sacrebleu.compute(predictions=predictions, references=references)
-    results_meteor = meteor.compute(predictions=predictions, references=references)
-    results_chrf = chrf.compute(predictions=predictions, references=references)
-    results_bleu = bleu.compute(predictions=predictions, references=references)
-    return results_rouge['rouge1']
-
-    # Print results
-    # print("\n📊 Translation Metrics:")
-    # print(f"ROUGE-1 (0–1):        {results_rouge['rouge1']:.4f}")  # Overlap of unigrams (single words) between the generated and reference texts.
-    # print(f"ROUGE-2 (0–1):        {results_rouge['rouge2']:.4f}")  # Overlap of bigrams (word pairs).
-    # print(f"ROUGE-L (0–1):        {results_rouge['rougeL']:.4f}")  # Measures longest common subsequence (sequence similarity).
-    # print(f"SacreBLEU (0–100):    {results_sacrebleu['score']:.2f}")  # Precision-based score for how many matching words/phrases, adjusted for brevity.
-    # print(f"METEOR (0–1):         {results_meteor['meteor']:.4f}")  #  Considers word matches, stemming, and synonyms with penalties for word order.
-    # print(f"chrF (0–100):         {results_chrf['score']:.2f}")  # Measures character-level n-gram overlap (more sensitive to small variations).
-    # print(f"BLEU (0–100):         {results_bleu['bleu']:.2f}")  # Measures n-gram overlap between generated and reference texts.
-
-n = 100
-for i in range(n):
-    src_input, predictions, references = inference_from_datasets(train_dataset=False, index=i)  # translation, real_translation
-
-
-    json_data = {
-        "text": [src_input], 
-        "target_lang": "FR"
+    results = {
+        'ROUGE-1': rouge.compute(predictions=preds, references=refs)['rouge1'],
+        'ROUGE-2': rouge.compute(predictions=preds, references=refs)['rouge2'],
+        'ROUGE-L': rouge.compute(predictions=preds, references=refs)['rougeL'],
+        'SacreBLEU': sacrebleu.compute(predictions=preds, references=refs)['score'],
+        'METEOR': meteor.compute(predictions=preds, references=refs)['meteor'],
+        # 'chrF': chrf.compute(predictions=preds, references=refs)['score'],
+        'BLEU': bleu.compute(predictions=preds, references=refs)['bleu']
     }
+    return results
+
+# -----------------------------
+# Translate using DeepL
+# -----------------------------
+def translate_deepl(src_text: str, target_lang='FR'):
+    """
+    Send text to DeepL API and return the translation.
+    """
+    json_data = {"text": [src_text], "target_lang": target_lang}
     headers = {"Authorization": f"DeepL-Auth-Key {deepl_auth_key}"}
     response = httpx.post("https://api-free.deepl.com/v2/translate", json=json_data, headers=headers)
-    response = response.json()["translations"][0]["text"]
-    print('Translation from DeepL:', response)
+    response.raise_for_status()
+    return response.json()["translations"][0]["text"]
 
-    local_accuracy += compute(predictions, references)
-    print()
-    deepl_accuracy += compute(predictions, response)
+# -----------------------------
+# Evaluate multiple examples
+# -----------------------------
+def evaluate_model(model, tokenizer, dataset_loader, num_examples):
+    """
+    Evaluate model on dataset and compare with DeepL.
+    Returns aggregated metrics.
+    """
+    local_metrics_sum = {k: 0.0 for k in ['ROUGE-1','ROUGE-2','ROUGE-L','SacreBLEU','METEOR','BLEU']}
+    deepl_metrics_sum = {k: 0.0 for k in local_metrics_sum.keys()}
+    deepl_metrics_sum_to_local = {k: 0.0 for k in local_metrics_sum.keys()}
 
-print('Local accuracy:', local_accuracy/n)
-print('DeepL accuracy:', deepl_accuracy/n)
+    for i in range(num_examples):
+        src, pred, ref = translate_dataset_example(model, tokenizer, dataset_loader, index=i)
+        deepl_pred = translate_deepl(src)
 
-# %%
-# PATH = r"new_translation_model.pt"
-# torch.save(transformer.state_dict(), PATH)
+        local_metrics = compute_metrics(pred, ref)
+        deepl_metrics = compute_metrics(deepl_pred, ref)
+        deepl_metrics_to_local = compute_metrics(pred, deepl_pred)
 
-# %%
-# next_model = Transformer(src_vocab_size, tgt_vocab_size, d_model, num_heads, num_layers, d_ff, max_src_seq_len,
-#                          max_tgt_seq_len, dropout)
-# next_model.load_state_dict(torch.load(PATH, weights_only=True))
-# next_model = next_model.to(device)
-# # print(next_model)
+        # accumulate metrics
+        for k in local_metrics_sum.keys():
+            local_metrics_sum[k] += local_metrics[k]
+            deepl_metrics_sum[k] += deepl_metrics[k]
+            deepl_metrics_sum_to_local[k] += deepl_metrics_to_local[k]
+        print("Sample: ", i)
 
-# # sentence = tokenizer.decode(train_loader.dataset[0][0].tolist(), skip_special_tokens=True)
-# sentence = "What are light beans there?"
-# print(sentence)
-# # sentence = "Prehistoric humans studied the relationship between the seasons and the length of days to plan their hunting and gathering activities."
-# translation = translate_sentence(sentence, tokenizer, next_model)
-# print(translation)
+        # Print example comparison
+        print(f"Example {i+1}:")
+        print("SRC:       ", src)
+        print("TRANSLATION:      ", pred)
+        print("REFERENCE: ", ref)
+        print("DEEPL_PRED:     ", deepl_pred)
+        print("Local Metrics:", local_metrics)
+        print("DeepL Metrics:", deepl_metrics)
+        print("DeepL Metrics comparing to Local Model", deepl_metrics_to_local)
+        print('-'*80)
+
+    # Compute average metrics
+    local_metrics_avg = {k: v/num_examples for k, v in local_metrics_sum.items()}
+    deepl_metrics_avg = {k: v/num_examples for k, v in deepl_metrics_sum.items()}
+    deepl_metrics_sum_to_local_avg = {k: v/num_examples for k, v in deepl_metrics_sum_to_local.items()}
+
+    print(f"\n===== AVERAGE METRICS afert {i + 1} samples =====")
+    print("LOCAL MODEL:", local_metrics_avg)
+    print("DEEPL     :", deepl_metrics_avg)
+    print("DEEPL to Local Model:", deepl_metrics_sum_to_local_avg)
+
+# -----------------------------
+# Usage
+# -----------------------------
+evaluate_model(
+    transformer_output, tokenizer, val_loader, num_examples=10
+)
