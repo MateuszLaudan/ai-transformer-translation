@@ -1,3 +1,5 @@
+### Training with GELU ###
+
 Epoch 2: 100%|██████████| 3750/3750 [05:15<00:00, 11.87it/s, Batch Loss=3.95]
 Epoch: 2, Loss: 4.6046
 Average Validation Loss: 3.8542

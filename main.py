@@ -272,10 +272,11 @@ class FeedForward(nn.Module):
         self.fc1 = nn.Linear(d_model, d_ff)
         self.fc2 = nn.Linear(d_ff, d_model)
         # Assumption: GELU outperforms ReLU which leads to 'ReLU dead neuron problem': https://arxiv.org/pdf/1606.08415
-        self.gelu = nn.GELU(approximate='tanh')
+        self.func = nn.GELU(approximate='tanh')
+        # self.func = nn.ReLU()
 
     def forward(self, x):
-        return self.fc2(self.gelu(self.fc1(x)))
+        return self.fc2(self.func(self.fc1(x)))
 
 
 # %%
