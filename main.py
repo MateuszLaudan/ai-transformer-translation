@@ -599,6 +599,7 @@ import evaluate
 import httpx
 from dotenv import load_dotenv
 import os
+import statistics
 
 load_dotenv()
 
@@ -669,7 +670,7 @@ def compute_metrics(prediction: str, reference: str):
         'SacreBLEU': sacrebleu.compute(predictions=preds, references=refs)['score'],
         'METEOR': meteor.compute(predictions=preds, references=refs)['meteor'],
         # 'chrF': chrf.compute(predictions=preds, references=refs)['score'],
-        'BLEU': bleu.compute(predictions=preds, references=refs)['bleu']
+        'BLEU': bleu.compute(predictions=preds, references=refs, smooth=True)['bleu']
     }
     return results
 
@@ -692,11 +693,14 @@ def translate_deepl(src_text: str, target_lang='FR'):
 def evaluate_model(model, tokenizer, dataset_loader, num_examples):
     """
     Evaluate model on dataset and compare with DeepL.
-    Returns aggregated metrics.
+    Returns aggregated metrics (mean and std).
     """
-    local_metrics_sum = {k: 0.0 for k in ['ROUGE-1','ROUGE-2','ROUGE-L','SacreBLEU','METEOR','BLEU']}
-    deepl_metrics_sum = {k: 0.0 for k in local_metrics_sum.keys()}
-    deepl_metrics_sum_to_local = {k: 0.0 for k in local_metrics_sum.keys()}
+    metrics_names = ['ROUGE-1','ROUGE-2','ROUGE-L','SacreBLEU','METEOR','BLEU']
+
+    # store per-sample values
+    local_metrics_all = {k: [] for k in metrics_names}
+    deepl_metrics_all = {k: [] for k in metrics_names}
+    deepl_metrics_to_local_all = {k: [] for k in metrics_names}
 
     for i in range(num_examples):
         src, pred, ref = translate_dataset_example(model, tokenizer, dataset_loader, index=i)
@@ -707,13 +711,11 @@ def evaluate_model(model, tokenizer, dataset_loader, num_examples):
         deepl_metrics_to_local = compute_metrics(pred, deepl_pred)
 
         # accumulate metrics
-        for k in local_metrics_sum.keys():
-            local_metrics_sum[k] += local_metrics[k]
-            deepl_metrics_sum[k] += deepl_metrics[k]
-            deepl_metrics_sum_to_local[k] += deepl_metrics_to_local[k]
-        print("Sample: ", i)
+        for k in metrics_names:
+            local_metrics_all[k].append(local_metrics[k])
+            deepl_metrics_all[k].append(deepl_metrics[k])
+            deepl_metrics_to_local_all[k].append(deepl_metrics_to_local[k])
 
-        # Print example comparison
         print(f"Example {i+1}:")
         print("SRC:       ", src)
         print("TRANSLATION:      ", pred)
@@ -724,15 +726,18 @@ def evaluate_model(model, tokenizer, dataset_loader, num_examples):
         print("DeepL Metrics comparing to Local Model", deepl_metrics_to_local)
         print('-'*80)
 
-    # Compute average metrics
-    local_metrics_avg = {k: v/num_examples for k, v in local_metrics_sum.items()}
-    deepl_metrics_avg = {k: v/num_examples for k, v in deepl_metrics_sum.items()}
-    deepl_metrics_sum_to_local_avg = {k: v/num_examples for k, v in deepl_metrics_sum_to_local.items()}
+    # Compute average and standard deviation
+    def summarize(metrics_dict):
+        return {k: (statistics.mean(v), statistics.stdev(v)) for k, v in metrics_dict.items()}
 
-    print(f"\n===== AVERAGE METRICS afert {i + 1} samples =====")
-    print("LOCAL MODEL:", local_metrics_avg)
-    print("DEEPL     :", deepl_metrics_avg)
-    print("DEEPL to Local Model:", deepl_metrics_sum_to_local_avg)
+    local_summary = summarize(local_metrics_all)
+    deepl_summary = summarize(deepl_metrics_all)
+    deepl_to_local_summary = summarize(deepl_metrics_to_local_all)
+
+    print(f"\n===== RESULTS after {num_examples} samples =====")
+    print("LOCAL MODEL (mean ± std):", local_summary)
+    print("DEEPL (mean ± std):", deepl_summary)
+    print("DEEPL vs Local (mean ± std):", deepl_to_local_summary)
 
 # -----------------------------
 # Usage
