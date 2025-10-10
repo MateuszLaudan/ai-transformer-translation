@@ -1,21 +1,11 @@
-# ---
-# jupyter:
-#   jupytext:
-#     text_representation:
-#       extension: .py
-#       format_name: percent
-#       format_version: '1.3'
-#       jupytext_version: 1.17.1
-#   kernelspec:
-#     display_name: .venv
-#     language: python
-#     name: python3
-# ---
+#!/usr/bin/env python
+# coding: utf-8
 
-# %% [markdown]
 # <!-- # Summarization model -->
 
-# %%
+# In[ ]:
+
+
 import torch
 import torch.nn as nn
 import json
@@ -34,23 +24,25 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 # device = 'cpu'
 print(f"Using device: {device}")
 
-# import os
+import os
 
 
-# %% [markdown]
 # # Load dataset
 
-# %%
+# In[ ]:
+
 
 from datasets import load_dataset
 
 ds = load_dataset("FrancophonIA/french-to-english", split="train", streaming=True)
 print(ds)
 
-# %% [markdown]
+
 # # Get Tokenizer - BartTokenizer with 50265 vocab size
 
-# %%
+# In[ ]:
+
+
 from transformers import BartTokenizer
 
 tokenizer = BartTokenizer.from_pretrained("facebook/bart-large-cnn")
@@ -60,16 +52,20 @@ SRC_MAX_SEQ = 50
 TGT_MAX_SEQ = 50
 max_examples = 600000
 
-# %% [markdown]
+
 # # Prepare data - save data
 
-# %%
+# In[ ]:
+
+
 from transformers import pipeline
 
 model_ckpt = "papluca/xlm-roberta-base-language-detection"
 pipe = pipeline("text-classification", model=model_ckpt, device=device)
 
-# %%
+
+# In[ ]:
+
 
 # inputs = []
 # outputs = []
@@ -113,10 +109,12 @@ pipe = pipeline("text-classification", model=model_ckpt, device=device)
 # with open('tokenized_data.json', 'w') as f:
 #     json.dump({'inputs': inputs, 'outputs': outputs}, f)
 
-# %% [markdown]
+
 # # Load data
 
-# %%
+# In[ ]:
+
+
 inputs = []
 outputs = []
 
@@ -135,10 +133,12 @@ print(len(inputs), len(outputs))
 #     if res != 'fr':
 #         print(res, out)
 
-# %% [markdown]
+
 # # Clean data
 
-# %%
+# In[ ]:
+
+
 """To set determined len for src and tgt --> also with pad tokens"""
 
 
@@ -151,13 +151,19 @@ def clean_data(sentences, max_seq_length):
 clean_data(inputs, SRC_MAX_SEQ)
 clean_data(outputs, TGT_MAX_SEQ)
 
-# %%
+
+# In[ ]:
+
+
 for step, (inp, out) in enumerate(zip(inputs, outputs)):
     print(tokenizer.decode(inp, skip_special_tokens=True), '######', tokenizer.decode(out, skip_special_tokens=True))
     if step == 10:
         break
 
-# %%
+
+# In[ ]:
+
+
 inputs = torch.tensor(inputs)
 targets = torch.tensor(outputs)
 assert len(inputs) == len(targets), "Number of articles and summaries must be the same"
@@ -166,10 +172,12 @@ print('Max tgt seq len:', TGT_MAX_SEQ)
 print('Number of examples:', len(inputs))
 print("Number of vocab size:", VOCAB_SIZE)
 
-# %% [markdown]
+
 # # Custom Dataset and DataLoader with train and val data (80%, 20%)
 
-# %%
+# In[ ]:
+
+
 from torch.utils.data import random_split, Dataset
 
 
@@ -190,7 +198,10 @@ train_data, val_data = random_split(dataset, [0.8, 0.2])
 print(f"Number of training samples: {len(train_data)}")
 print(f"Number of validation samples: {len(val_data)}")
 
-# %%
+
+# In[ ]:
+
+
 from torch.utils.data import DataLoader
 
 BATCH_SIZE = 128  # TODO: expand batch size for transformer architecture
@@ -213,11 +224,16 @@ print(f"Number of batches in training set: {len(train_loader)}")
 print(f"Number of batches in validation set: {len(val_loader)}")
 
 
-# %%
+# In[ ]:
+
+
 print(tokenizer.decode(train_loader.dataset[0][0], skip_special_tokens=True) )
 print(tokenizer.decode(train_loader.dataset[0][1], skip_special_tokens=True) )
 
-# %%
+
+# In[ ]:
+
+
 import math
 
 
@@ -265,7 +281,9 @@ class MultiHeadAttention(nn.Module):
         return output
 
 
-# %%
+# In[ ]:
+
+
 class FeedForward(nn.Module):
     def __init__(self, d_model, d_ff):
         super(FeedForward, self).__init__()
@@ -279,7 +297,9 @@ class FeedForward(nn.Module):
         return self.fc2(self.func(self.fc1(x)))
 
 
-# %%
+# In[ ]:
+
+
 """NOTE: There is no evidence that positional encoding is better than simple learnable embeddings."""
 
 #
@@ -299,7 +319,10 @@ class FeedForward(nn.Module):
 #     def forward(self, x):
 #         return x + self.pe[:, :x.size(1)]
 
-# %%
+
+# In[ ]:
+
+
 class EncoderLayer(nn.Module):
     def __init__(self, d_model, num_heads, d_ff, dropout):
         super(EncoderLayer, self).__init__()
@@ -320,7 +343,9 @@ class EncoderLayer(nn.Module):
         return x
 
 
-# %%
+# In[ ]:
+
+
 class DecoderLayer(nn.Module):
     def __init__(self, d_model, num_heads, d_ff, dropout):
         super(DecoderLayer, self).__init__()
@@ -345,8 +370,8 @@ class DecoderLayer(nn.Module):
         x = x + self.dropout(ff_output)
         return x
 
-# %%
 
+# In[ ]:
 
 
 class Transformer(nn.Module):
@@ -411,7 +436,9 @@ class Transformer(nn.Module):
         return output
 
 
-# %%
+# In[ ]:
+
+
 src_vocab_size = VOCAB_SIZE
 tgt_vocab_size = VOCAB_SIZE
 d_model = 128  # TODO: experiment with model complexity - it can lead to overfitting
@@ -422,7 +449,10 @@ max_src_seq_len = SRC_MAX_SEQ
 max_tgt_seq_len = TGT_MAX_SEQ
 dropout = 0.1
 
-# %%
+
+# In[ ]:
+
+
 transformer = Transformer(src_vocab_size, tgt_vocab_size, d_model, num_heads, num_layers, d_ff, max_src_seq_len,
                           max_tgt_seq_len,
                           dropout)
@@ -431,10 +461,11 @@ num_parameters = sum(p.numel() for p in transformer.parameters())
 print(f"Number of parameters: {num_parameters/1000000} M")
 
 
-# %% [markdown]
 # # Train model
 
-# %%
+# In[ ]:
+
+
 import torch
 import torch.nn.functional as F
 from transformers import get_linear_schedule_with_warmup
@@ -454,8 +485,8 @@ optimizer = optim.Adam(
 num_epochs = 150
 # TODO: add warmup steps
 num_training_steps = len(train_loader) * num_epochs
-num_warmup_steps = int(0.1 * num_training_steps) # TODO: experiment with that
- 
+num_warmup_steps = int(0.6 * num_training_steps) # TODO: experiment with that
+
 scheduler = get_linear_schedule_with_warmup(
     optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=num_training_steps
 )
@@ -526,10 +557,11 @@ for epoch in range(num_epochs):
     print(f"Average Validation Loss: {avg_val_loss:.4f}")
 
 
-# %% [markdown]
 # # Show charts with lr and loss
 
-# %%
+# In[ ]:
+
+
 from matplotlib import pyplot as plt
 
 # Ensure all histories are properly formatted
@@ -578,23 +610,34 @@ ax2.legend(loc="upper right")
 
 plt.show()
 
-# %%
+
+# In[ ]:
+
+
 PATH = r"model.pt"
 
-# %%
+
+# In[ ]:
+
+
 # torch.save(transformer.state_dict(), PATH)
 
-# %%
+
+# In[ ]:
+
+
 transformer_output = Transformer(src_vocab_size, tgt_vocab_size, d_model, num_heads, num_layers, d_ff, max_src_seq_len,
                           max_tgt_seq_len,
                           dropout)
 transformer_output.to(device)
 transformer_output.load_state_dict(torch.load(PATH, weights_only=True))
 
-# %% [markdown]
+
 # # Model inference
 
-# %%
+# In[ ]:
+
+
 import evaluate
 import httpx
 from dotenv import load_dotenv
@@ -649,7 +692,7 @@ def translate_dataset_example(model, tokenizer, dataset_loader, index=0):
     src_input = tokenizer.decode(dataset[index][0].tolist(), skip_special_tokens=True)
     reference = tokenizer.decode(dataset[index][1].tolist(), skip_special_tokens=True)
     translation = inference(src_input, tokenizer, model)
-    
+
     return src_input, translation, reference
 
 # -----------------------------
@@ -743,5 +786,6 @@ def evaluate_model(model, tokenizer, dataset_loader, num_examples):
 # Usage
 # -----------------------------
 evaluate_model(
-    transformer_output, tokenizer, val_loader, num_examples=10
+    transformer_output, tokenizer, val_loader, num_examples=7
 )
+
