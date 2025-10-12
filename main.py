@@ -123,15 +123,6 @@ with open('tokenized_data.json', 'r') as f:
     inputs = data['inputs'][:max_examples]
     outputs = data['outputs'][:max_examples]
 print(len(inputs), len(outputs))
-# for inp, out in zip(inputs, outputs):
-#     out = tokenizer.decode(out, skip_special_tokens=True)
-#     inp = tokenizer.decode(inp, skip_special_tokens=True)
-#     print(inp)
-#     print(out)
-#     print()
-#     res = pipe(out, top_k=1, truncation=True)[0]['label']
-#     if res != 'fr':
-#         print(res, out)
 
 
 # # Clean data
@@ -227,13 +218,6 @@ print(f"Number of batches in validation set: {len(val_loader)}")
 # In[ ]:
 
 
-print(tokenizer.decode(train_loader.dataset[0][0], skip_special_tokens=True) )
-print(tokenizer.decode(train_loader.dataset[0][1], skip_special_tokens=True) )
-
-
-# In[ ]:
-
-
 import math
 
 
@@ -246,10 +230,10 @@ class MultiHeadAttention(nn.Module):
         self.num_heads = num_heads
         self.d_k = d_model // num_heads 
 
-        self.W_q = nn.Linear(d_model, d_model)  # Query transformation
-        self.W_k = nn.Linear(d_model, d_model)  # Key transformation
-        self.W_v = nn.Linear(d_model, d_model)  # Value transformation
-        self.W_o = nn.Linear(d_model, d_model)  # Output transformation
+        self.W_q = nn.Linear(d_model, d_model)
+        self.W_k = nn.Linear(d_model, d_model)
+        self.W_v = nn.Linear(d_model, d_model)
+        self.W_o = nn.Linear(d_model, d_model)
 
     def scaled_dot_product_attention(self, Q, K, V, mask=None):
         # TODO: use F..scaled_dot_product_attention
@@ -264,11 +248,11 @@ class MultiHeadAttention(nn.Module):
         return output
 
     def split_heads(self, x):
-        batch_size, seq_length, d_model = x.size()
+        batch_size, seq_length, _ = x.size()
         return x.view(batch_size, seq_length, self.num_heads, self.d_k).transpose(1, 2)
 
     def combine_heads(self, x):
-        batch_size, _, seq_length, d_k = x.size()
+        batch_size, _, seq_length, _ = x.size()
         return x.transpose(1, 2).contiguous().view(batch_size, seq_length, self.d_model)
 
     def forward(self, Q, K, V, mask=None):
@@ -564,12 +548,10 @@ for epoch in range(num_epochs):
 
 from matplotlib import pyplot as plt
 
-# Ensure all histories are properly formatted
 assert len(lr_history) == len(
     loss_history
 ), "Length of lr_history and loss_history must be the same"
 
-# Create figure and primary y-axis for Loss
 fig, ax1 = plt.subplots()
 
 ax1.set_title("Learning Rate vs. Loss")
@@ -578,11 +560,10 @@ ax1.set_ylabel("Loss", color="tab:red")
 ax1.plot(range(len(loss_history)), loss_history, color="tab:red", label="Training Loss")
 ax1.tick_params(axis="y", labelcolor="tab:red")
 
-# Plot validation loss (assuming it occurs every 'epoch_interval' steps)
 epoch_interval = len(loss_history) // len(val_loss_history)
 val_x = [
     i * epoch_interval for i in range(len(val_loss_history))
-]  # X values for validation loss
+]
 ax1.plot(
     val_x,
     val_loss_history,
@@ -592,7 +573,6 @@ ax1.plot(
     label="Validation Loss",
 )
 
-# Create secondary y-axis for Learning Rate
 ax2 = ax1.twinx()
 ax2.set_ylabel("Learning Rate", color="tab:blue")
 ax2.plot(
@@ -655,7 +635,6 @@ deepl_auth_key = os.getenv("DEEPL_AUTH_KEY")
 rouge = evaluate.load("rouge")
 sacrebleu = evaluate.load("sacrebleu")
 meteor = evaluate.load("meteor")
-chrf = evaluate.load("chrf")
 bleu = evaluate.load("bleu")
 
 # -----------------------------
@@ -713,7 +692,6 @@ def compute_metrics(prediction: str, reference: str):
         'ROUGE-L': rouge.compute(predictions=preds, references=refs)['rougeL'],
         'SacreBLEU': sacrebleu.compute(predictions=preds, references=refs)['score'],
         'METEOR': meteor.compute(predictions=preds, references=refs)['meteor'],
-        # 'chrF': chrf.compute(predictions=preds, references=refs)['score'],
         'BLEU': bleu.compute(predictions=preds, references=refs, smooth=True)['bleu']
     }
     return results
@@ -741,7 +719,6 @@ def evaluate_model(model, tokenizer, dataset_loader, num_examples):
     """
     metrics_names = ['ROUGE-1','ROUGE-2','ROUGE-L','SacreBLEU','METEOR','BLEU']
 
-    # store per-sample values
     local_metrics_all = {k: [] for k in metrics_names}
     deepl_metrics_all = {k: [] for k in metrics_names}
     deepl_metrics_to_local_all = {k: [] for k in metrics_names}
@@ -754,7 +731,6 @@ def evaluate_model(model, tokenizer, dataset_loader, num_examples):
         deepl_metrics = compute_metrics(deepl_pred, ref)
         deepl_metrics_to_local = compute_metrics(pred, deepl_pred)
 
-        # accumulate metrics
         for k in metrics_names:
             local_metrics_all[k].append(local_metrics[k])
             deepl_metrics_all[k].append(deepl_metrics[k])
@@ -770,7 +746,6 @@ def evaluate_model(model, tokenizer, dataset_loader, num_examples):
         print("DeepL Metrics comparing to Local Model", deepl_metrics_to_local)
         print('-'*80)
 
-    # Compute average and standard deviation
     def summarize(metrics_dict):
         return {k: (statistics.mean(v), statistics.stdev(v)) for k, v in metrics_dict.items()}
 
