@@ -614,7 +614,8 @@ plt.show()
 # In[ ]:
 
 
-PATH = r"model.pt"
+PATH = f"model_{d_model}.pt"
+PATH
 
 
 # In[ ]:
@@ -786,6 +787,6 @@ def evaluate_model(model, tokenizer, dataset_loader, num_examples):
 # Usage
 # -----------------------------
 evaluate_model(
-    transformer_output, tokenizer, val_loader, num_examples=7
+    transformer_output, tokenizer, val_loader, num_examples=10
 )
 
